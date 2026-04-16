@@ -3,9 +3,7 @@ import asyncio
 import tempfile
 import base64
 import os
-import nest_asyncio
-
-nest_asyncio.apply()  # Allows nested event loops (safe)
+import concurrent.futures
 
 try:
     import edge_tts
@@ -210,19 +208,15 @@ st.markdown(f"## 📖 Lesson {lesson_number}: {lesson_data['topic']}")
 
 tab1, tab2, tab3, tab4, tab5 = st.tabs(["💬 Conversations", "📚 Vocabulary", "📖 Grammar", "🎧 Pronunciation", "❓ Quiz"])
 
-# ----- FIXED AUDIO FUNCTION (creates a new event loop each call) -----
+# ----- FIXED AUDIO FUNCTION using ThreadPoolExecutor (no event loop conflicts) -----
 def generate_audio(text, output_path):
-    """Synchronous wrapper that creates a new event loop to avoid timeout errors."""
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        loop.run_until_complete(_save_audio(text, output_path))
-    finally:
-        loop.close()
-
-async def _save_audio(text, output_path):
-    communicate = edge_tts.Communicate(text, "zh-CN-XiaoxiaoNeural")
-    await communicate.save(output_path)
+    """Run edge_tts in a separate thread to avoid asyncio event loop issues."""
+    async def _save():
+        communicate = edge_tts.Communicate(text, "zh-CN-XiaoxiaoNeural")
+        await communicate.save(output_path)
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        future = executor.submit(asyncio.run, _save())
+        future.result()  # Wait for completion
 
 def play_audio(text, key):
     if not EDGE_TTS_AVAILABLE:
