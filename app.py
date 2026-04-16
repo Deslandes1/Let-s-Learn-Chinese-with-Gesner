@@ -1,16 +1,8 @@
 import streamlit as st
-import asyncio
 import tempfile
 import base64
 import os
-import threading
-import concurrent.futures
-
-try:
-    import edge_tts
-    EDGE_TTS_AVAILABLE = True
-except (ModuleNotFoundError, ImportError):
-    EDGE_TTS_AVAILABLE = False
+import subprocess
 
 st.set_page_config(page_title="Let's Learn Chinese with Gesner", layout="wide")
 
@@ -209,30 +201,18 @@ st.markdown(f"## 📖 Lesson {lesson_number}: {lesson_data['topic']}")
 
 tab1, tab2, tab3, tab4, tab5 = st.tabs(["💬 Conversations", "📚 Vocabulary", "📖 Grammar", "🎧 Pronunciation", "❓ Quiz"])
 
-# ----- ROBUST AUDIO FUNCTION (works for Chinese and all languages) -----
-def run_async_task(coro):
-    """Run an async coroutine in a new event loop in a separate thread."""
-    def _run():
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            loop.run_until_complete(coro)
-        finally:
-            loop.close()
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-        executor.submit(_run).result()
-
+# ----- FIXED AUDIO FUNCTION using subprocess (no asyncio) -----
 def generate_audio(text, output_path):
-    """Generate audio using edge_tts in a thread-safe manner."""
-    async def _save():
-        communicate = edge_tts.Communicate(text, "zh-CN-XiaoxiaoNeural")
-        await communicate.save(output_path)
-    run_async_task(_save())
+    """Generate audio using edge-tts command line tool (synchronous)."""
+    cmd = ["edge-tts", "--voice", "zh-CN-XiaoxiaoNeural", "--text", text, "--write-media", output_path]
+    try:
+        subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=30)
+    except subprocess.CalledProcessError as e:
+        raise Exception(f"edge-tts error: {e.stderr}")
+    except FileNotFoundError:
+        raise Exception("edge-tts command not found. Please install edge-tts.")
 
 def play_audio(text, key):
-    if not EDGE_TTS_AVAILABLE:
-        st.info("🔇 Audio disabled. Please install edge-tts.")
-        return
     if st.button(f"🔊", key=key):
         with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp:
             try:
