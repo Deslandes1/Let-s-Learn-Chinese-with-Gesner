@@ -3,10 +3,10 @@ import asyncio
 import tempfile
 import base64
 import os
-import random
-import threading
+import nest_asyncio
 
-# ----- Audio Setup -----
+nest_asyncio.apply()  # Allows nested event loops (safe)
+
 try:
     import edge_tts
     EDGE_TTS_AVAILABLE = True
@@ -210,13 +210,19 @@ st.markdown(f"## 📖 Lesson {lesson_number}: {lesson_data['topic']}")
 
 tab1, tab2, tab3, tab4, tab5 = st.tabs(["💬 Conversations", "📚 Vocabulary", "📖 Grammar", "🎧 Pronunciation", "❓ Quiz"])
 
-# ----- Fixed Audio Function (no asyncio.run inside thread) -----
+# ----- FIXED AUDIO FUNCTION (creates a new event loop each call) -----
 def generate_audio(text, output_path):
-    """Synchronous wrapper for edge_tts using asyncio.run() (works in Streamlit)"""
-    async def _save():
-        communicate = edge_tts.Communicate(text, "zh-CN-XiaoxiaoNeural")
-        await communicate.save(output_path)
-    asyncio.run(_save())
+    """Synchronous wrapper that creates a new event loop to avoid timeout errors."""
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        loop.run_until_complete(_save_audio(text, output_path))
+    finally:
+        loop.close()
+
+async def _save_audio(text, output_path):
+    communicate = edge_tts.Communicate(text, "zh-CN-XiaoxiaoNeural")
+    await communicate.save(output_path)
 
 def play_audio(text, key):
     if not EDGE_TTS_AVAILABLE:
@@ -225,7 +231,7 @@ def play_audio(text, key):
     if st.button(f"🔊", key=key):
         with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp:
             try:
-                generate_audio(text, tmp.name)  # synchronous call
+                generate_audio(text, tmp.name)
                 with open(tmp.name, "rb") as f:
                     audio_bytes = f.read()
                     b64 = base64.b64encode(audio_bytes).decode()
