@@ -4,12 +4,11 @@ import tempfile
 import base64
 import os
 import random
+import threading
 
 # ----- Audio Setup -----
 try:
     import edge_tts
-    import nest_asyncio
-    nest_asyncio.apply()
     EDGE_TTS_AVAILABLE = True
 except (ModuleNotFoundError, ImportError):
     EDGE_TTS_AVAILABLE = False
@@ -211,10 +210,13 @@ st.markdown(f"## 📖 Lesson {lesson_number}: {lesson_data['topic']}")
 
 tab1, tab2, tab3, tab4, tab5 = st.tabs(["💬 Conversations", "📚 Vocabulary", "📖 Grammar", "🎧 Pronunciation", "❓ Quiz"])
 
-# ----- Audio function (Chinese voice) -----
-async def save_speech(text, file_path):
-    communicate = edge_tts.Communicate(text, "zh-CN-XiaoxiaoNeural")
-    await communicate.save(file_path)
+# ----- Fixed Audio Function (no asyncio.run inside thread) -----
+def generate_audio(text, output_path):
+    """Synchronous wrapper for edge_tts using asyncio.run() (works in Streamlit)"""
+    async def _save():
+        communicate = edge_tts.Communicate(text, "zh-CN-XiaoxiaoNeural")
+        await communicate.save(output_path)
+    asyncio.run(_save())
 
 def play_audio(text, key):
     if not EDGE_TTS_AVAILABLE:
@@ -223,7 +225,7 @@ def play_audio(text, key):
     if st.button(f"🔊", key=key):
         with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp:
             try:
-                asyncio.run(save_speech(text, tmp.name))
+                generate_audio(text, tmp.name)  # synchronous call
                 with open(tmp.name, "rb") as f:
                     audio_bytes = f.read()
                     b64 = base64.b64encode(audio_bytes).decode()
