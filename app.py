@@ -3,6 +3,7 @@ import asyncio
 import tempfile
 import base64
 import os
+import threading
 import concurrent.futures
 
 try:
@@ -208,15 +209,25 @@ st.markdown(f"## 📖 Lesson {lesson_number}: {lesson_data['topic']}")
 
 tab1, tab2, tab3, tab4, tab5 = st.tabs(["💬 Conversations", "📚 Vocabulary", "📖 Grammar", "🎧 Pronunciation", "❓ Quiz"])
 
-# ----- FIXED AUDIO FUNCTION using ThreadPoolExecutor (no event loop conflicts) -----
+# ----- ROBUST AUDIO FUNCTION (works for Chinese and all languages) -----
+def run_async_task(coro):
+    """Run an async coroutine in a new event loop in a separate thread."""
+    def _run():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            loop.run_until_complete(coro)
+        finally:
+            loop.close()
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        executor.submit(_run).result()
+
 def generate_audio(text, output_path):
-    """Run edge_tts in a separate thread to avoid asyncio event loop issues."""
+    """Generate audio using edge_tts in a thread-safe manner."""
     async def _save():
         communicate = edge_tts.Communicate(text, "zh-CN-XiaoxiaoNeural")
         await communicate.save(output_path)
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-        future = executor.submit(asyncio.run, _save())
-        future.result()  # Wait for completion
+    run_async_task(_save())
 
 def play_audio(text, key):
     if not EDGE_TTS_AVAILABLE:
